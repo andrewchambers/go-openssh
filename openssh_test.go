@@ -14,7 +14,7 @@ func TestParsingKnownHosts(t *testing.T) {
 gitlab.com,52.167.219.168 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBfVkhtj3Hw9xjLVXVYrU9QlYWrOLXBpQ6KWjbjTDTdDkoohFzgbEY=
 `
 
-	expectedKnownHosts := &KnownHosts{
+	expectedKnownHosts := KnownHosts{
 		HostKeys: []HostKey{
 			HostKey{
 				Addresses: []HostKeyAddress{

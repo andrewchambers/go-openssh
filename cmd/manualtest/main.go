@@ -1,16 +1,15 @@
 package main
 
 import (
-	"time"
 	"log"
 	"os/exec"
+	"time"
 
-	"github.com/andrewchambers/openssh"
+	"github.com/andrewchambers/go-openssh"
 )
 
-
-func main () {
-	if ! openssh.WaitForServerUp("acha.ninja", 22, 5 * time.Second) {
+func main() {
+	if !openssh.WaitForServerUp("acha.ninja", 22, 5*time.Second) {
 		panic("ssh server not up")
 	}
 
@@ -29,7 +28,7 @@ func main () {
 	log.Printf("%#v", identity)
 
 	config := &openssh.SSHConfig{
-		Identity: identity,
+		Identity:   identity,
 		KnownHosts: knownHosts,
 	}
 

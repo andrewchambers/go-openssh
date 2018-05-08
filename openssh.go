@@ -55,7 +55,7 @@ func (knownHosts *KnownHosts) Bytes() []byte {
 	return buf.Bytes()
 }
 
-func ParseKnownHosts(input []byte) (*KnownHosts, error) {
+func ParseKnownHosts(input []byte) (KnownHosts, error) {
 	hostKeys := []HostKey{}
 
 	r := bytes.NewBuffer(input)
@@ -72,7 +72,7 @@ func ParseKnownHosts(input []byte) (*KnownHosts, error) {
 		if len(l) != 0 && l[0] != '#' {
 			parts := strings.Split(l, " ")
 			if len(parts) != 3 && len(parts) != 4 {
-				return nil, malformedErr()
+				return KnownHosts{}, malformedErr()
 			}
 
 			k := HostKey{
@@ -98,7 +98,7 @@ func ParseKnownHosts(input []byte) (*KnownHosts, error) {
 					switch st {
 					case 0:
 						if c != '[' {
-							return nil, malformedErr()
+							return KnownHosts{}, malformedErr()
 						}
 						st = 1
 					case 1:
@@ -109,7 +109,7 @@ func ParseKnownHosts(input []byte) (*KnownHosts, error) {
 						}
 					case 2:
 						if c != ':' {
-							return nil, malformedErr()
+							return KnownHosts{}, malformedErr()
 						}
 						st = 3
 					case 3:
@@ -118,12 +118,12 @@ func ParseKnownHosts(input []byte) (*KnownHosts, error) {
 				}
 
 				if st != 3 {
-					return nil, malformedErr()
+					return KnownHosts{}, malformedErr()
 				}
 
 				p, err := strconv.ParseUint(portBuf.String(), 10, 16)
 				if err != nil {
-					return nil, malformedErr()
+					return KnownHosts{}, malformedErr()
 				}
 
 				k.Addresses = append(k.Addresses, HostKeyAddress{
@@ -140,18 +140,18 @@ func ParseKnownHosts(input []byte) (*KnownHosts, error) {
 		}
 
 		if err != nil {
-			return nil, err
+			return KnownHosts{}, err
 		}
 	}
 
-	return &KnownHosts{
+	return KnownHosts{
 		HostKeys: hostKeys,
 	}, nil
 }
 
 type SSHConfig struct {
-	Identity   *Identity
-	KnownHosts *KnownHosts
+	Identity   Identity
+	KnownHosts KnownHosts
 }
 
 type Identity struct {
@@ -254,28 +254,28 @@ func WaitForServerUp(address string, port uint16, waitFor time.Duration) bool {
 	return false
 }
 
-func FetchHostKeys(address string, port uint) (*KnownHosts, error) {
+func FetchHostKeys(address string, port uint) (KnownHosts, error) {
 	out, err := exec.Command("ssh-keyscan", "-p", fmt.Sprintf("%d", port), address).Output()
 	if err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
-			return nil, errors.New(string(err.Stderr))
+			return KnownHosts{}, errors.New(string(err.Stderr))
 		}
-		return nil, err
+		return KnownHosts{}, err
 	}
 
 	knownHosts, err := ParseKnownHosts(out)
 	if err != nil {
-		return nil, err
+		return KnownHosts{}, err
 	}
 
 	return knownHosts, nil
 }
 
 // Generates a new unencrypted public/private keypair
-func NewIdentity(keyType string, bits uint64) (*Identity, error) {
+func NewIdentity(keyType string, bits uint64) (Identity, error) {
 	d, err := ioutil.TempDir("", "")
 	if err != nil {
-		return nil, err
+		return Identity{}, err
 	}
 	defer os.RemoveAll(d)
 
@@ -285,22 +285,22 @@ func NewIdentity(keyType string, bits uint64) (*Identity, error) {
 	_, err = exec.Command("ssh-keygen", "-C", "", "-b", fmt.Sprintf("%d", bits), "-t", keyType, "-N", "", "-f", privKeyPath).Output()
 	if err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
-			return nil, errors.New(string(err.Stderr))
+			return Identity{}, errors.New(string(err.Stderr))
 		}
-		return nil, err
+		return Identity{}, err
 	}
 
 	privKey, err := ioutil.ReadFile(privKeyPath)
 	if err != nil {
-		return nil, err
+		return Identity{}, err
 	}
 
 	pubKey, err := ioutil.ReadFile(pubKeyPath)
 	if err != nil {
-		return nil, err
+		return Identity{}, err
 	}
 
-	return &Identity{
+	return Identity{
 		PrivateKey: string(privKey),
 		PublicKey:  string(pubKey),
 	}, nil
