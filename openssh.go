@@ -55,7 +55,7 @@ func (knownHosts *KnownHosts) Bytes() []byte {
 	return buf.Bytes()
 }
 
-func ParseKnownHosts(input []byte) (KnownHosts, error) {
+func ParseHostKeys(input []byte) ([]HostKey, error) {
 	hostKeys := []HostKey{}
 
 	r := bytes.NewBuffer(input)
@@ -72,7 +72,7 @@ func ParseKnownHosts(input []byte) (KnownHosts, error) {
 		if len(l) != 0 && l[0] != '#' {
 			parts := strings.Split(l, " ")
 			if len(parts) != 3 && len(parts) != 4 {
-				return KnownHosts{}, malformedErr()
+				return nil, malformedErr()
 			}
 
 			k := HostKey{
@@ -98,7 +98,7 @@ func ParseKnownHosts(input []byte) (KnownHosts, error) {
 					switch st {
 					case 0:
 						if c != '[' {
-							return KnownHosts{}, malformedErr()
+							return nil, malformedErr()
 						}
 						st = 1
 					case 1:
@@ -109,7 +109,7 @@ func ParseKnownHosts(input []byte) (KnownHosts, error) {
 						}
 					case 2:
 						if c != ':' {
-							return KnownHosts{}, malformedErr()
+							return nil, malformedErr()
 						}
 						st = 3
 					case 3:
@@ -118,12 +118,12 @@ func ParseKnownHosts(input []byte) (KnownHosts, error) {
 				}
 
 				if st != 3 {
-					return KnownHosts{}, malformedErr()
+					return nil, malformedErr()
 				}
 
 				p, err := strconv.ParseUint(portBuf.String(), 10, 16)
 				if err != nil {
-					return KnownHosts{}, malformedErr()
+					return nil, malformedErr()
 				}
 
 				k.Addresses = append(k.Addresses, HostKeyAddress{
@@ -140,16 +140,14 @@ func ParseKnownHosts(input []byte) (KnownHosts, error) {
 		}
 
 		if err != nil {
-			return KnownHosts{}, err
+			return nil, err
 		}
 	}
 
-	return KnownHosts{
-		HostKeys: hostKeys,
-	}, nil
+	return hostKeys, nil
 }
 
-type SSHConfig struct {
+type Config struct {
 	Identity   Identity
 	KnownHosts KnownHosts
 }
@@ -159,7 +157,7 @@ type Identity struct {
 	PrivateKey string
 }
 
-func (config *SSHConfig) BuildSandbox() (*Sandbox, error) {
+func (config *Config) BuildSandbox() (*Sandbox, error) {
 	dir, err := ioutil.TempDir("", "")
 	if err != nil {
 		return nil, err
@@ -254,21 +252,21 @@ func WaitForServerUp(address string, port uint16, waitFor time.Duration) bool {
 	return false
 }
 
-func FetchHostKeys(address string, port uint) (KnownHosts, error) {
+func FetchHostKeys(address string, port uint16) ([]HostKey, error) {
 	out, err := exec.Command("ssh-keyscan", "-p", fmt.Sprintf("%d", port), address).Output()
 	if err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
-			return KnownHosts{}, errors.New(string(err.Stderr))
+			return nil, errors.New(string(err.Stderr))
 		}
-		return KnownHosts{}, err
+		return nil, err
 	}
 
-	knownHosts, err := ParseKnownHosts(out)
+	hostKeys, err := ParseHostKeys(out)
 	if err != nil {
-		return KnownHosts{}, err
+		return nil, err
 	}
 
-	return knownHosts, nil
+	return hostKeys, nil
 }
 
 // Generates a new unencrypted public/private keypair

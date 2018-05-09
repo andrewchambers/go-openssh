@@ -13,12 +13,12 @@ func main() {
 		panic("ssh server not up")
 	}
 
-	knownHosts, err := openssh.FetchHostKeys("acha.ninja", 22)
+	hostKeys, err := openssh.FetchHostKeys("acha.ninja", 22)
 	if err != nil {
 		panic(err)
 	}
 
-	log.Printf("%#v", knownHosts)
+	log.Printf("%#v", hostKeys)
 
 	identity, err := openssh.NewIdentity("ed25519", 1028)
 	if err != nil {
@@ -27,17 +27,16 @@ func main() {
 
 	log.Printf("%#v", identity)
 
-	config := &openssh.SSHConfig{
+	config := &openssh.Config{
 		Identity:   identity,
-		KnownHosts: knownHosts,
+		KnownHosts: openssh.KnownHosts{HostKeys: hostKeys},
 	}
 
 	sandbox, err := config.BuildSandbox()
 	if err != nil {
 		panic(err)
 	}
-	//defer sandbox.Close()
-	log.Printf("sandbox.Dir = %s", sandbox.Dir)
+	defer sandbox.Close()
 
 	cmd := sandbox.GetSSHCommand("-n", "ac@acha.ninja", "ls")
 	cmd.Stdin = nil
