@@ -200,9 +200,9 @@ StrictHostKeyChecking yes
 	return &Sandbox{
 		Dir: dir,
 
-		knownHostsFilePath: knownHostsFilePath,
-		privateKeyFilePath: privateKeyFilePath,
-		sshConfigFilePath:  sshConfigFilePath,
+		KnownHostsFilePath: knownHostsFilePath,
+		PrivateKeyFilePath: privateKeyFilePath,
+		SSHConfigFilePath:  sshConfigFilePath,
 	}, nil
 }
 
@@ -211,15 +211,15 @@ StrictHostKeyChecking yes
 type Sandbox struct {
 	Dir string
 
-	knownHostsFilePath string
-	privateKeyFilePath string
-	sshConfigFilePath  string
+	KnownHostsFilePath string
+	PrivateKeyFilePath string
+	SSHConfigFilePath  string
 }
 
 func (sbox *Sandbox) GetSSHCommand(extraArgs ...string) *exec.Cmd {
 	args := []string{}
 	args = append(args, "-F")
-	args = append(args, sbox.sshConfigFilePath)
+	args = append(args, sbox.SSHConfigFilePath)
 	args = append(args, extraArgs...)
 	return exec.Command("ssh", args...)
 }
@@ -227,7 +227,7 @@ func (sbox *Sandbox) GetSSHCommand(extraArgs ...string) *exec.Cmd {
 func (sbox *Sandbox) GetSCPCommand(extraArgs ...string) *exec.Cmd {
 	args := []string{}
 	args = append(args, "-F")
-	args = append(args, sbox.sshConfigFilePath)
+	args = append(args, sbox.SSHConfigFilePath)
 	args = append(args, extraArgs...)
 	return exec.Command("scp", args...)
 }
