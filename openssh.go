@@ -216,6 +216,17 @@ type Sandbox struct {
 	SSHConfigFilePath  string
 }
 
+func (sbox *Sandbox) GetSSHCommandForHost(username string, ipaddress string, port uint16, extraArgs ...string) *exec.Cmd {
+	args := []string{}
+	args = append(args, "-F")
+	args = append(args, sbox.SSHConfigFilePath)
+	args = append(args, "-p")
+	args = append(args, fmt.Sprintf("%d", port))
+	args = append(args, fmt.Sprintf("%s@%s", username, ipaddress))
+	args = append(args, extraArgs...)
+	return exec.Command("ssh", args...)
+}
+
 func (sbox *Sandbox) GetSSHCommand(extraArgs ...string) *exec.Cmd {
 	args := []string{}
 	args = append(args, "-F")
