@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os/exec"
 	"time"
@@ -9,18 +10,20 @@ import (
 )
 
 func main() {
-	if !openssh.WaitForServerUp("acha.ninja", 22, 5*time.Second) {
+	ctx := context.Background()
+
+	if !openssh.WaitForServerUp(ctx, "acha.ninja", 22, 5*time.Second) {
 		panic("ssh server not up")
 	}
 
-	hostKeys, err := openssh.FetchHostKeys("acha.ninja", 22)
+	hostKeys, err := openssh.FetchHostKeys(ctx, "acha.ninja", 22)
 	if err != nil {
 		panic(err)
 	}
 
 	log.Printf("%#v", hostKeys)
 
-	identity, err := openssh.NewIdentity("ed25519", 1028)
+	identity, err := openssh.NewIdentity(ctx, "ed25519", 1028)
 	if err != nil {
 		panic(err)
 	}
@@ -38,7 +41,7 @@ func main() {
 	}
 	defer sandbox.Close()
 
-	cmd := sandbox.GetSSHCommand("-n", "ac@acha.ninja", "ls")
+	cmd := sandbox.GetSSHCommand(ctx, "-n", "ac@acha.ninja", "ls")
 	cmd.Stdin = nil
 
 	log.Printf("%#v", cmd)

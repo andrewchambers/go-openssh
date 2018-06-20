@@ -2,7 +2,7 @@ package openssh
 
 import (
 	"bytes"
-	"errors"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,7 +12,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/andrewchambers/go-errors"
 )
 
 type HostKeyAddress struct {
@@ -216,7 +219,80 @@ type Sandbox struct {
 	SSHConfigFilePath  string
 }
 
-func (sbox *Sandbox) GetSSHCommandForHost(username string, ipaddress string, port uint16, extraArgs ...string) *exec.Cmd {
+func getExitCode(err error) int {
+	exitErr, ok := errors.RootCause(err).(*exec.ExitError)
+	if ok {
+		procStatus, ok := exitErr.Sys().(syscall.WaitStatus)
+		if ok {
+			return procStatus.ExitStatus()
+		}
+	}
+
+	return 256
+}
+
+// Run script on the remote host. Returns rc == 256  and err != nil
+// if there was an error setting up to run the script.
+// returns rc == 255 and err == nil if there was an ssh error running the script.
+// return rc == exitof(script) and err == nil if the script was run.
+func (sbox *Sandbox) RunScriptOnHost(ctx context.Context, username string, ipAddress string, port uint16, script string, extraArgs ...string) (int, error) {
+	// XXX umask?
+	cmd := sbox.GetSSHCommandForHost(ctx, username, ipAddress, port, "mktemp")
+	mktempOutput, err := cmd.Output()
+	if err != nil {
+		return 256, errors.Wrap(err, "unable to create temp dir")
+	}
+	rPath := strings.Trim(string(mktempOutput), "\n")
+
+	defer func() {
+		ctx, _ := context.WithTimeout(ctx, 10*time.Second)
+		cmd := sbox.GetSSHCommandForHost(ctx, username, ipAddress, port, "rm", rPath)
+		_ = cmd.Run()
+	}()
+
+	f, err := ioutil.TempFile("", "")
+	if err != nil {
+		return 256, errors.Wrap(err, "unable to create temp dir")
+	}
+	defer os.Remove(f.Name())
+
+	_, err = f.Write([]byte(script))
+	if err != nil {
+		return 256, errors.Wrap(err, "unable to write script")
+	}
+
+	err = f.Close()
+	if err != nil {
+		return 256, errors.Wrap(err, "unable to write script")
+	}
+
+	cmd = sbox.GetSCPCommand(ctx, "-P", fmt.Sprintf("%d", port), f.Name(), fmt.Sprintf("%s@%s:%s", username, ipAddress, rPath))
+	err = cmd.Run()
+	if err != nil {
+		return 256, errors.Wrap(err, "upload script")
+	}
+
+	cmd = sbox.GetSSHCommandForHost(ctx, username, ipAddress, port, "chmod", "+x", rPath)
+	err = cmd.Run()
+	if err != nil {
+		return 256, errors.Wrap(err, "unable to make script executable")
+	}
+	args := []string{rPath}
+	args = append(args, extraArgs...)
+
+	cmd = sbox.GetSSHCommandForHost(ctx, username, ipAddress, port, args...)
+	err = cmd.Run()
+	rc := getExitCode(err)
+	if err != nil {
+		if rc > 255 {
+			return getExitCode(err), errors.Wrap(err, "error running script on remote")
+		}
+	}
+
+	return rc, nil
+}
+
+func (sbox *Sandbox) GetSSHCommandForHost(ctx context.Context, username string, ipaddress string, port uint16, extraArgs ...string) *exec.Cmd {
 	args := []string{}
 	args = append(args, "-F")
 	args = append(args, sbox.SSHConfigFilePath)
@@ -224,30 +300,30 @@ func (sbox *Sandbox) GetSSHCommandForHost(username string, ipaddress string, por
 	args = append(args, fmt.Sprintf("%d", port))
 	args = append(args, fmt.Sprintf("%s@%s", username, ipaddress))
 	args = append(args, extraArgs...)
-	return exec.Command("ssh", args...)
+	return exec.CommandContext(ctx, "ssh", args...)
 }
 
-func (sbox *Sandbox) GetSSHCommand(extraArgs ...string) *exec.Cmd {
+func (sbox *Sandbox) GetSSHCommand(ctx context.Context, extraArgs ...string) *exec.Cmd {
 	args := []string{}
 	args = append(args, "-F")
 	args = append(args, sbox.SSHConfigFilePath)
 	args = append(args, extraArgs...)
-	return exec.Command("ssh", args...)
+	return exec.CommandContext(ctx, "ssh", args...)
 }
 
-func (sbox *Sandbox) GetSCPCommand(extraArgs ...string) *exec.Cmd {
+func (sbox *Sandbox) GetSCPCommand(ctx context.Context, extraArgs ...string) *exec.Cmd {
 	args := []string{}
 	args = append(args, "-F")
 	args = append(args, sbox.SSHConfigFilePath)
 	args = append(args, extraArgs...)
-	return exec.Command("scp", args...)
+	return exec.CommandContext(ctx, "scp", args...)
 }
 
 func (sbox *Sandbox) Close() error {
 	return os.RemoveAll(sbox.Dir)
 }
 
-func WaitForServerUp(address string, port uint16, waitFor time.Duration) bool {
+func WaitForServerUp(ctx context.Context, address string, port uint16, waitFor time.Duration) bool {
 	deadline := time.Now().Add(waitFor)
 	for time.Now().Before(deadline) {
 		dialer := net.Dialer{
@@ -263,8 +339,8 @@ func WaitForServerUp(address string, port uint16, waitFor time.Duration) bool {
 	return false
 }
 
-func FetchHostKeys(address string, port uint16) ([]HostKey, error) {
-	out, err := exec.Command("ssh-keyscan", "-p", fmt.Sprintf("%d", port), address).Output()
+func FetchHostKeys(ctx context.Context, address string, port uint16) ([]HostKey, error) {
+	out, err := exec.CommandContext(ctx, "ssh-keyscan", "-p", fmt.Sprintf("%d", port), address).Output()
 	if err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			return nil, errors.New(string(err.Stderr))
@@ -281,7 +357,7 @@ func FetchHostKeys(address string, port uint16) ([]HostKey, error) {
 }
 
 // Generates a new unencrypted public/private keypair
-func NewIdentity(keyType string, bits uint64) (Identity, error) {
+func NewIdentity(ctx context.Context, keyType string, bits uint64) (Identity, error) {
 	d, err := ioutil.TempDir("", "")
 	if err != nil {
 		return Identity{}, err
@@ -291,7 +367,7 @@ func NewIdentity(keyType string, bits uint64) (Identity, error) {
 	privKeyPath := filepath.Join(d, "sshkey")
 	pubKeyPath := privKeyPath + ".pub"
 
-	_, err = exec.Command("ssh-keygen", "-C", "", "-b", fmt.Sprintf("%d", bits), "-t", keyType, "-N", "", "-f", privKeyPath).Output()
+	_, err = exec.CommandContext(ctx, "ssh-keygen", "-C", "", "-b", fmt.Sprintf("%d", bits), "-t", keyType, "-N", "", "-f", privKeyPath).Output()
 	if err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			return Identity{}, errors.New(string(err.Stderr))
