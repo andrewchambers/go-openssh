@@ -1,6 +1,7 @@
 package openssh
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -220,6 +222,9 @@ type Sandbox struct {
 }
 
 func getExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
 	exitErr, ok := errors.RootCause(err).(*exec.ExitError)
 	if ok {
 		procStatus, ok := exitErr.Sys().(syscall.WaitStatus)
@@ -235,7 +240,7 @@ func getExitCode(err error) int {
 // if there was an error setting up to run the script.
 // returns rc == 255 and err == nil if there was an ssh error running the script.
 // return rc == exitof(script) and err == nil if the script was run.
-func (sbox *Sandbox) RunScriptOnHost(ctx context.Context, username string, ipAddress string, port uint16, script string, extraArgs ...string) (int, error) {
+func (sbox *Sandbox) RunScriptOnHost(ctx context.Context, username string, ipAddress string, port uint16, stderrFn func(string), script string, extraArgs ...string) (int, error) {
 	// XXX umask?
 	cmd := sbox.GetSSHCommandForHost(ctx, username, ipAddress, port, "mktemp")
 	mktempOutput, err := cmd.Output()
@@ -281,7 +286,28 @@ func (sbox *Sandbox) RunScriptOnHost(ctx context.Context, username string, ipAdd
 	args = append(args, extraArgs...)
 
 	cmd = sbox.GetSSHCommandForHost(ctx, username, ipAddress, port, args...)
+	a, b := io.Pipe()
+	cmd.Stderr = b
+
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		wg.Done()
+		output := bufio.NewReader(a)
+		for {
+			// XXX long lines could clog memory...
+			// TODO
+			ln, err := output.ReadString('\n')
+			stderrFn(ln)
+			if err != nil {
+				break
+			}
+		}
+	}()
+
 	err = cmd.Run()
+	wg.Wait()
 	rc := getExitCode(err)
 	if err != nil {
 		if rc > 255 {
