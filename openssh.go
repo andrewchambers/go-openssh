@@ -163,7 +163,7 @@ type Identity struct {
 }
 
 func (config *Config) BuildSandbox() (*Sandbox, error) {
-	dir, err := ioutil.TempDir("", "")
+	dir, err := ioutil.TempDir("", "ssh-sandbox")
 	if err != nil {
 		return nil, err
 	}
